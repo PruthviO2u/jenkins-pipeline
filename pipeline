@@ -1,0 +1,73 @@
+pipeline{
+    agent any
+    
+tools {
+        maven 'maven'
+        ansible 'ansible'
+    }
+    
+    stages{
+        stage(checkoutcode){
+            steps{
+               git 'https://github.com/Manuv2u/project02_medicure.git'
+           }
+        }
+        stage(build){
+            steps{
+            sh 'mvn package install'
+            }
+                
+        }
+        stage(build_docker_image){
+            steps{
+                sh 'docker system prune -af'
+                sh 'docker build -t manuv2u/medicure:latest . '
+                }
+            }
+        stage(push_the_images_to_docker_hub){
+            steps{
+                withCredentials([string(credentialsId: 'docker', variable: 'dockerpass')]) {
+                    sh 'docker login -u manuv2u -p ${dockerpass}'
+                    sh 'docker push manuv2u/medicure:latest'
+                }
+            }
+        }
+         stage (' setting up terraform '){
+            steps{
+                dir('terraform_files') {
+                sh 'terraform init'
+                sh 'terraform validate'
+                sh 'terraform apply --auto-approve'
+               /* script {
+                    def publicIp = sh(script: 'terraform output public_ip', returnStdout: true).trim()
+                    env.public_ip = publicIp
+                     sh "echo The public IP is ${env.public_ip}"
+                    parameters {
+                     string(name: 'publicIp', defaultValue: "${env.public_ip}", description: 'The public IP address')
+                     }
+                }*/
+              }
+            }
+        } 
+         
+        stage('deploy to application to kubernetes'){
+           /* environment {
+                publicIp = '${env.public_ip}'
+                 }*/
+            steps{
+                //sh "echo The public IP is ${publicIp}"
+                sh 'chmod 600 ./terraform_files/project.pem'    
+                sh 'scp -o StrictHostKeyChecking=no -i ./terraform_files/project.pem medicure_deployment.yml ubuntu@3.109.181.144:/home/ubuntu/'
+                sh 'scp -o StrictHostKeyChecking=no -i ./terraform_files/project.pem medicure_service.yml ubuntu@3.109.181.144:/home/ubuntu/'
+                script{
+                try{
+                sh 'ssh -i ./terraform_files/project.pem ubuntu@ $3.109.181.144 sudo kubectl apply -f .'
+                    }catch(error){
+                        sh 'ssh -i ./terraform_files/project.pem ubuntu@3.109.181.144 sudo kubectl apply -f .'
+                                 }
+                            }
+                        
+                    }
+                }
+            }
+    } 
